@@ -3,21 +3,39 @@ import numpy as np
 import cv2
 import os
 
+def inpaint(depth_img):
+    d_min = depth_img.min()
+    d_max = depth_img.max()
+    
+    if d_max - d_min == 0:
+        depth_norm = np.zeros_like(depth_img)
+    else:
+        depth_norm = (depth_img - d_min) / (d_max - d_min)
+    
+    depth_uint = (depth_norm * 255).astype(np.uint8)
+    mask = (depth_uint==0).astype(np.uint8)
+    depth_inpaint_u = cv2.inpaint(depth_uint, mask, 3, cv2.INPAINT_TELEA)
+    depth_inpaint = (depth_inpaint_u.astype(np.float32) / 255.0) * (d_max - d_min) + d_min
+
+    return depth_inpaint
+
 def save_images(color_img, depth_img, output_dir, crop_40_50, crop_0_40, res, cx, cy):
 
         os.makedirs(os.path.join(output_dir, 'rgb'), exist_ok=True)
         os.makedirs(os.path.join(output_dir, 'depth'), exist_ok=True)
-    
-    
+
         def process_crop(img, crop_size, is_depth=False, shift = 0.0):
             x1 = cx - crop_size // 2
             y1 = cy - crop_size // 2
             x2 = x1 + crop_size
             y2 = y1 + crop_size
             
+            if is_depth: 
+                img = inpaint(img)
+
             cropped = img[y1:y2, x1:x2]
             
-            if is_depth:
+            if is_depth:                
                 resized = cv2.resize(cropped, (res, res), interpolation=cv2.INTER_CUBIC)
                 resized = resized.astype(np.float32) * 0.001    # mm (uint16) -> meter (float32)
                 if shift != 0.0:
@@ -42,7 +60,7 @@ def save_images(color_img, depth_img, output_dir, crop_40_50, crop_0_40, res, cx
         np.save(os.path.join(output_dir, 'depth', '40_50.npy'), depth_40_50)
         np.save(os.path.join(output_dir, 'depth', '0_40.npy'), depth_0_40)
 
-        print(f"\n[Saved!]")
+        print(f"[Saved!]")
         print(f"Path: {output_dir}")
 
 def capture(output_dir):    
@@ -52,7 +70,7 @@ def capture(output_dir):
     # Crop Center of RGB image for 0_40.png(zoom)
     # Context : 45cm, Fov 50 >>> Zoom : 5cm, Fov 40.86
     # Zoom Scale = (0.45 * tan(50/2)) / (0.05 * tan(40.86/2)) ≈ 11.3
-    ZOOM_FACTOR = 11.3     
+    ZOOM_FACTOR = 10.3     
     
     CROP_40_50 = 720 # Realsense 1280*720, 정사각형 이미지 크기 조정
     CROP_0_40 = int(CROP_40_50 / ZOOM_FACTOR)
@@ -104,7 +122,7 @@ def capture(output_dir):
             key = cv2.waitKey(1)
             
             if key & 0xFF == ord(' '):
-                print(f"\n[Captured] Center Distance: {center_dist:.4f} m")
+                print(f"[Captured] Center Distance: {center_dist:.4f} m")
                 
                 # TaRF input Depth Shape (480,480,1)
                 save_images(color_image, depth_image, output_dir, 
@@ -117,7 +135,7 @@ def capture(output_dir):
 
 
 if __name__ == "__main__":
-    SAVE_DIR = "/nerfstudio_modules/outputs/touch_estimation_input_cache" 
+    SAVE_DIR = "../TaRF/nerfstudio_modules/outputs/touch_estimation_input_cache" 
     
     if not os.path.exists(SAVE_DIR):
         os.makedirs(SAVE_DIR)
